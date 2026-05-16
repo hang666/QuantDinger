@@ -1,12 +1,14 @@
 name: Publish backend image to GHCR
 
-# Build and publish the backend image to GitHub Container Registry. The
-# frontend image is built and published independently by the private
+# Build and publish the backend image to GitHub Container Registry, then
+# (for v* tags only) cut a GitHub Release with the auto-generated changelog.
+# The frontend image is built and released independently by the private
 # QuantDinger-Vue repo (see its release-frontend.yml).
 #
 # Triggers:
-#   - push of a version tag matching `v*` (e.g. v3.0.9) → publishes semver + latest tags
-#   - manual workflow_dispatch → publishes only a short-SHA tag for ad-hoc testing
+#   - push of a version tag matching `v*` (e.g. v3.0.9) → publishes
+#     semver + latest tags AND a GitHub Release
+#   - manual workflow_dispatch → publishes only a short-SHA tag, no Release
 #
 # Multi-arch (linux/amd64 + linux/arm64) via QEMU + buildx. BUILD_REGION=global
 # keeps the GitHub-hosted runner off the Aliyun mirror detour.
@@ -28,8 +30,8 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
-  packages: write
+  contents: write   # needed to create a GitHub Release
+  packages: write   # needed to push to GHCR
 
 jobs:
   backend:
@@ -78,3 +80,23 @@ jobs:
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
           provenance: false
+
+      # ----- Release-only step (skipped on workflow_dispatch) -----
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Backend ${{ github.ref_name }}
+
+            **Docker image (multi-arch, amd64 + arm64):**
+
+            ```bash
+            docker pull ghcr.io/${{ github.repository_owner }}/quantdinger-backend:${{ github.ref_name }}
+            ```
+
+            Pin in `docker-compose.ghcr.yml` via `IMAGE_TAG=${{ github.ref_name }}` in a project-root `.env`.
+
+            ---
